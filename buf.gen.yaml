@@ -1,0 +1,7 @@
+version: v2
+# Remote plugins: only `buf` is needed locally — no protoc, no protoc-gen-* installs.
+plugins:
+  - remote: buf.build/protocolbuffers/python
+    out: .
+  - remote: buf.build/grpc/python
+    out: .
