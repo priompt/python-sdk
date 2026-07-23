@@ -125,9 +125,9 @@ missed notification only delays a refresh by one TTL.
 
 ## For maintainers of this library
 
-`priompt/v1/` contains gRPC stubs generated from `proto/priompt/v1/prompt.proto`
-(this repo carries its own copy of the contract; the source of truth lives in
-the core **priompt** repo). To regenerate after a proto change, install
+`priompt/v1/` contains gRPC stubs generated from the shared **proto** repo
+(`../proto` — the single source of truth for the contract; this repo carries
+no copy). To regenerate after a proto change, install
 [buf](https://buf.build/docs/installation) and run:
 
 ```sh

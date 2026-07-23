@@ -1,5 +1,9 @@
 version: v2
-# Remote plugins: only `buf` is needed locally — no protoc, no protoc-gen-* installs.
+# The contract lives in the sibling `proto` repo — this file only generates
+# the in-package Python stubs from it. Remote plugins: only `buf` is needed
+# locally — no protoc, no protoc-gen-* installs.
+inputs:
+  - directory: ../proto/proto
 plugins:
   - remote: buf.build/protocolbuffers/python
     out: .
