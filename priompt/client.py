@@ -34,6 +34,8 @@ class PromptClient:
         token=None,
         tls=False,
         ca_cert=None,
+        client_cert=None,
+        client_key=None,
         cache_ttl=0,
         nats_url=None,
         url=None,
@@ -50,8 +52,20 @@ class PromptClient:
         if not host:
             raise ValueError("PromptClient needs host=, url=, or PRIOMPT_URL")
         if tls:
+            # ca_cert, client_cert and client_key are all *paths*.
+            #
+            # client_cert/client_key are what let an agent reach a server started
+            # with -client-ca, which refuses connections without a certificate
+            # signed by that CA — before authentication runs at all. Without them
+            # this client simply could not talk to an mTLS deployment, which made
+            # mTLS a CLI-only feature even though agents are the consumers it
+            # exists to protect.
+            if bool(client_cert) != bool(client_key):
+                raise ValueError("client_cert and client_key must be given together")
             creds = grpc.ssl_channel_credentials(
-                root_certificates=open(ca_cert, "rb").read() if ca_cert else None
+                root_certificates=open(ca_cert, "rb").read() if ca_cert else None,
+                private_key=open(client_key, "rb").read() if client_key else None,
+                certificate_chain=open(client_cert, "rb").read() if client_cert else None,
             )
             self._chan = grpc.secure_channel(host, creds)
         else:

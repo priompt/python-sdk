@@ -135,3 +135,18 @@ buf generate
 ```
 
 Tests: `pip install -e . pytest && pytest -q`.
+
+## TLS and mTLS
+
+```python
+# TLS with a private CA (the usual self-hosted case)
+PromptClient(host="prompts.internal:8443", token="…", tls=True, ca_cert="ca.crt")
+
+# mTLS — for a server started with -client-ca, which refuses connections
+# without a certificate signed by that CA, before authentication runs
+PromptClient(host="prompts.internal:8443", token="…", tls=True,
+             ca_cert="ca.crt", client_cert="client.crt", client_key="client.key")
+```
+
+`ca_cert`, `client_cert` and `client_key` are file paths. `client_cert` and
+`client_key` must be given together.
