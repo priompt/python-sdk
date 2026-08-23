@@ -90,8 +90,8 @@ prompt = client.get("priompt://acme/support/agent", ref="1e8284f35650")
 ## Live updates
 
 When someone publishes a new version, the server pushes a notification that
-includes a **semantic verdict** — how big the change really is. Your app can
-auto-reload safe changes and hold dangerous ones for a human:
+includes a **semantic verdict** — how far the change's meaning shift spreads
+through the prompt. Your app decides what to act on and what to hold:
 
 ```mermaid
 sequenceDiagram
@@ -101,9 +101,9 @@ sequenceDiagram
 
     W->>S: publish new version
     S-->>A: "changed! verdict: localized tweak" (via NATS)
-    alt verdict is a tweak or minor edit
-        A->>A: reload the prompt automatically
-    else verdict is "structural"
+    alt verdict is within your policy
+        A->>A: re-fetch and reload
+    else verdict is structural, or absent
         A->>A: keep current version, alert a human
     end
 ```
@@ -111,14 +111,28 @@ sequenceDiagram
 ```python
 client = PromptClient(host="…:8443", cache_ttl=30, nats_url="nats://…:4222")
 
+# Which verdicts this app acts on by itself. Everything else waits for a human —
+# including an empty verdict, which means the server could not classify the
+# change and published anyway. "" does not mean "safe"; it means nobody checked.
+AUTO_RELOAD = {"minor edit", "localized tweak", "new"}
+
 def on_change(version, classification):
-    if classification == "structural":
-        alert_a_human(version)      # the meaning changed shape — review it
+    if classification in AUTO_RELOAD:
+        reload(version)             # contained change — pick it up
     else:
-        reload(version)             # safe to pick up automatically
+        alert_a_human(version)      # structural, or unclassified — hold it
 
 client.subscribe("priompt://acme/support/agent", on_change)   # needs the [nats] extra
 ```
+
+**The verdict measures spread, not risk.** A one-line edit turning *"offer a
+refund when reasonable"* into *"never offer a refund"* reads as a `localized
+tweak` — correctly, since the rest of the prompt still means what it did — and
+is still a policy reversal worth a human's eyes. Where you draw the line is your
+policy; the verdict is triage, not approval.
+
+Treat the event as *"something changed"* and re-fetch with `get()` rather than
+trusting the version in the payload.
 
 Push is best-effort; the `cache_ttl` is the convergence guarantee — even a
 missed notification only delays a refresh by one TTL.
