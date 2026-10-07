@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-from priompt.v1 import prompt_pb2 as priompt_dot_v1_dot_prompt__pb2
+from priompt_sdk.v1 import prompt_pb2 as priompt_dot_v1_dot_prompt__pb2
 
 
 class PromptServiceStub:

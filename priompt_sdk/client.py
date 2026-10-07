@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 import grpc
 
-from priompt.v1 import prompt_pb2, prompt_pb2_grpc
+from priompt_sdk.v1 import prompt_pb2, prompt_pb2_grpc
 
 
 def _subject(uri):

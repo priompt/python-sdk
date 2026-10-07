@@ -2,28 +2,37 @@
 
 **The piece your Python app imports to fetch its prompts.** Instead of
 hard-coding prompt text in your source, your app asks a
-[Priompt](https://github.com/) server for it by address — and can be notified
-the moment a prompt changes.
+[Priompt](https://github.com/priompt) server for it by address — and can be
+notified the moment a prompt changes.
 
-```mermaid
-flowchart LR
-    APP["🐍 Your Python app"] --> C["PromptClient<br/>(this library)"]
-    C -->|"gRPC: get / list / diff"| S["🗄️ Priompt server"]
-    S -.->|"'prompt changed' push (NATS)"| C
-    C --> L1["Optional local cache<br/>(cache_ttl seconds)"]
+```
+  🐍 Your Python app
+        │
+        ▼
+  PromptClient (this library) ──gRPC: get / list / diff──▶ 🗄️  Priompt server
+        │   ▲                                                     │
+        │   └──────────── "prompt changed" push (NATS) ───────────┘
+        ▼
+  Optional local cache (cache_ttl seconds)
 ```
 
 ## Install
 
 ```sh
-pip install <dist-name>          # dist name TBD; imports as `priompt`
-pip install "<dist-name>[nats]"  # add the [nats] extra if you use subscribe()
+pip install priompt-sdk          # published as priompt-sdk; imports as `priompt_sdk`
+pip install "priompt-sdk[nats]"  # add the [nats] extra if you use subscribe()
+```
+
+After install, import it as `priompt_sdk`:
+
+```python
+from priompt_sdk import PromptClient
 ```
 
 ## Five lines to your first prompt
 
 ```python
-from priompt import PromptClient
+from priompt_sdk import PromptClient
 
 client = PromptClient(host="localhost:8443")            # token=... if auth is on
 prompt = client.get("priompt://acme/onboarding/welcome")
@@ -50,6 +59,7 @@ between local, self-hosted, and cloud is a one-variable change.
 
 ```python
 PromptClient(host=None, token=None, tls=False, ca_cert=None,
+             client_cert=None, client_key=None,
              cache_ttl=0, nats_url=None, url=None)
 ```
 
@@ -93,19 +103,18 @@ When someone publishes a new version, the server pushes a notification that
 includes a **semantic verdict** — how far the change's meaning shift spreads
 through the prompt. Your app decides what to act on and what to hold:
 
-```mermaid
-sequenceDiagram
-    participant W as ✍️ Author
-    participant S as Priompt server
-    participant A as 🐍 Your app
-
-    W->>S: publish new version
-    S-->>A: "changed! verdict: localized tweak" (via NATS)
-    alt verdict is within your policy
-        A->>A: re-fetch and reload
-    else verdict is structural, or absent
-        A->>A: keep current version, alert a human
-    end
+```
+  ✍️ Author ──publish new version──▶ Priompt server
+                                          │
+                 "changed! verdict: localized tweak" (via NATS)
+                                          ▼
+                                     🐍 Your app
+                                          │
+             ┌────────────────────────────┴────────────────────────────┐
+   verdict within your policy                              verdict is structural, or absent
+             │                                                          │
+             ▼                                                          ▼
+     re-fetch and reload                              keep current version, alert a human
 ```
 
 ```python
@@ -139,7 +148,7 @@ missed notification only delays a refresh by one TTL.
 
 ## For maintainers of this library
 
-`priompt/v1/` contains gRPC stubs generated from the shared **proto** repo
+`priompt_sdk/v1/` contains gRPC stubs generated from the shared **proto** repo
 (`../proto` — the single source of truth for the contract; this repo carries
 no copy). To regenerate after a proto change, install
 [buf](https://buf.build/docs/installation) and run:
@@ -147,6 +156,13 @@ no copy). To regenerate after a proto change, install
 ```sh
 buf generate
 ```
+
+The proto package is `priompt.v1`, so buf writes the stubs under `priompt/v1/`.
+Move them into `priompt_sdk/v1/` and change the one generated Python import in
+`prompt_pb2_grpc.py` from `from priompt.v1 import ...` to
+`from priompt_sdk.v1 import ...`. Leave the `.priompt.v1.*` service paths and
+the serialized descriptor untouched — those are the gRPC wire contract. See the
+note in `buf.gen.yaml` for the exact steps.
 
 Tests: `pip install -e . pytest && pytest -q`.
 

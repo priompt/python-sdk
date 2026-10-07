@@ -2,6 +2,17 @@ version: v2
 # The contract lives in the sibling `proto` repo — this file only generates
 # the in-package Python stubs from it. Remote plugins: only `buf` is needed
 # locally — no protoc, no protoc-gen-* installs.
+#
+# NOTE: the proto package is `priompt.v1`, so buf writes the stubs to
+# `priompt/v1/`. This SDK ships them under `priompt_sdk/v1/` to avoid colliding
+# with the unrelated `priompt` package on PyPI. After `buf generate`, relocate
+# and fix the one generated Python import:
+#   1. move  priompt/v1/*  ->  priompt_sdk/v1/   (keep priompt_sdk/v1/__init__.py)
+#   2. in priompt_sdk/v1/prompt_pb2_grpc.py, change
+#        `from priompt.v1 import prompt_pb2 ...`  ->  `from priompt_sdk.v1 import prompt_pb2 ...`
+#   3. remove the now-empty generated `priompt/` dir
+# Do NOT touch the `.priompt.v1.*` service paths or the serialized descriptor —
+# those are the gRPC wire contract shared with the server and other SDKs.
 inputs:
   - directory: ../proto/proto
 plugins:

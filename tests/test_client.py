@@ -11,8 +11,8 @@ import threading
 
 import pytest
 
-from priompt import PromptClient
-from priompt.client import _subject
+from priompt_sdk import PromptClient
+from priompt_sdk.client import _subject
 
 
 class FakeStub:
@@ -41,7 +41,7 @@ class FakeStub:
 @pytest.fixture
 def clock(monkeypatch):
     """A settable monotonic clock. clock.now advances only when we say so."""
-    import priompt.client as mod
+    import priompt_sdk.client as mod
 
     state = {"t": 1000.0}
     monkeypatch.setattr(mod.time, "monotonic", lambda: state["t"])

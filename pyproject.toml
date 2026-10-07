@@ -1,19 +1,31 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# Distribution name is a placeholder — the import name stays `priompt`
-# (`from priompt import PromptClient`) regardless of what this is published as.
-name = "priompt-client-TBD"
+name = "priompt-sdk"
 version = "0.7.0"
 description = "Python client for Priompt — versioned prompt serving over gRPC"
 readme = "README.md"
 requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Priompt", email = "oss@priompt.com" }]
+keywords = ["prompts", "grpc", "llm", "prompt-management"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = ["grpcio>=1.60", "protobuf>=7.35"]
 
 [project.optional-dependencies]
 nats = ["nats-py>=2.0"]   # only needed for PromptClient.subscribe()
 
+[project.urls]
+Homepage = "https://github.com/priompt/python-sdk"
+Repository = "https://github.com/priompt/python-sdk"
+Issues = "https://github.com/priompt/python-sdk/issues"
+
 [tool.setuptools]
-packages = ["priompt", "priompt.v1"]
+packages = ["priompt_sdk", "priompt_sdk.v1"]
