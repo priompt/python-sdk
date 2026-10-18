@@ -11,8 +11,21 @@ import grpc
 from priompt_sdk.v1 import prompt_pb2, prompt_pb2_grpc
 
 
+_TOKEN_SAFE = frozenset(
+    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+)
+
+
 def _subject(uri):
-    return "priompt." + uri.removeprefix("priompt://").replace("/", ".")
+    """Map a prompt URI to the server's NATS subject (pubsub.Subject): one
+    token per URI segment, every byte outside [A-Za-z0-9_-] percent-encoded
+    with uppercase hex, so "priompt://acme.corp/x/a.b" ->
+    "priompt.acme%2Ecorp.x.a%2Eb". Dot-free URIs map as before."""
+    segs = uri.removeprefix("priompt://").split("/")
+    return "priompt." + ".".join(
+        "".join(chr(c) if c in _TOKEN_SAFE else f"%{c:02X}" for c in s.encode())
+        for s in segs
+    )
 
 
 def _parse_url(raw):
