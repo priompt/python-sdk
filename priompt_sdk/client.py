@@ -1,5 +1,6 @@
 """Priompt Python adapter. Works with LangChain, LangGraph, or raw Python."""
 
+import logging
 import os
 import threading
 import time
@@ -140,7 +141,9 @@ class PromptClient:
         change. TTL polling via cache_ttl is the pull side. Returns the daemon
         thread running the NATS subscription.
 
-        Requires `pip install nats-py` and nats_url set on the client.
+        Requires `pip install nats-py` and nats_url set on the client. Raises
+        ConnectionError if the broker can't be reached or refuses the
+        connection, e.g. a wrong NATS token ('Authorization Violation').
         """
         if not self._nats_url:
             raise ValueError("set nats_url on PromptClient to subscribe")
@@ -151,10 +154,27 @@ class PromptClient:
         import nats
 
         subject = _subject(uri)
+        ready = threading.Event()
+        failed = []  # the initial connect error, if any
+        log = logging.getLogger("priompt_sdk")
+
+        async def on_error(e):
+            # Before the first connect succeeds, raising here aborts nats.connect
+            # (it awaits this callback), so a wrong token fails subscribe() at
+            # once instead of retrying for minutes. Afterwards, nats-py
+            # reconnects by itself; log one line, not a traceback.
+            if not ready.is_set():
+                raise e
+            log.warning("priompt subscribe %s: %s", uri, e)
 
         def run():
             async def main():
-                nc = await nats.connect(self._nats_url)
+                try:
+                    nc = await nats.connect(self._nats_url, error_cb=on_error)
+                except Exception as e:
+                    failed.append(e)
+                    ready.set()
+                    return
 
                 async def handler(msg):
                     self._cache.pop(uri, None)  # drop stale cache
@@ -166,6 +186,7 @@ class PromptClient:
                         on_change(msg.data.decode(), "")  # pre-0.7 bare-hash body
 
                 await nc.subscribe(subject, cb=handler)
+                ready.set()
                 while True:
                     await asyncio.sleep(3600)
 
@@ -173,6 +194,14 @@ class PromptClient:
 
         t = threading.Thread(target=run, daemon=True)
         t.start()
+        ready.wait()
+        if failed:
+            e = failed[0]
+            u = urlparse(self._nats_url)  # don't echo the token
+            raise ConnectionError(
+                f"subscribe: cannot connect to NATS at {u.hostname}:{u.port}: "
+                f"{str(e) or type(e).__name__}"
+            ) from e
         return t
 
     def close(self):
