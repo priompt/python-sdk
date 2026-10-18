@@ -183,3 +183,28 @@ def test_concurrent_gets_do_not_crash_or_corrupt(clock):
 
     assert not errors, errors
     assert len(c._cache) == len(keys)  # one entry per key, no garbage
+
+
+def test_subscribe_raises_when_broker_refuses(monkeypatch):
+    """#4: with a wrong NATS token the broker answers 'Authorization
+    Violation'. subscribe() must raise that to the caller, not log tracebacks
+    from a background thread and return as if it were subscribed."""
+    import sys
+    import types
+
+    class AuthError(Exception):
+        pass
+
+    async def connect(url, error_cb=None, **kw):
+        # Like nats-py: report each failed attempt to error_cb, then give up.
+        err = AuthError("nats: 'Authorization Violation'")
+        for _ in range(3):
+            if error_cb:
+                await error_cb(err)
+        raise err
+
+    monkeypatch.setitem(sys.modules, "nats", types.SimpleNamespace(connect=connect))
+    c = PromptClient("localhost:1", nats_url="nats://WRONG@127.0.0.1:4222")
+    with pytest.raises(ConnectionError, match="Authorization Violation") as exc:
+        c.subscribe("priompt://x", lambda *_: None)
+    assert "WRONG" not in str(exc.value)  # the token is not echoed
