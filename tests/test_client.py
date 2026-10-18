@@ -171,6 +171,92 @@ def test_subscribe_requires_nats_url():
         c.subscribe("priompt://x", lambda *_: None)
 
 
+# --- subscribe: the reload policy controls the cache ----------------------
+
+@pytest.fixture
+def fake_nats(monkeypatch):
+    """Swap in a fake `nats` module that captures the subscription callback, so
+    a test can deliver an event without a broker. deliver(body) runs the
+    handler to completion on the calling thread."""
+    import asyncio
+    import json
+    import sys
+    import types
+
+    subscribed = threading.Event()
+    state = {}
+
+    class FakeNC:
+        async def subscribe(self, subject, cb):
+            state["cb"] = cb
+            subscribed.set()
+
+    async def connect(url, **kw):
+        return FakeNC()
+
+    monkeypatch.setitem(sys.modules, "nats", types.SimpleNamespace(connect=connect))
+
+    def deliver(version, classification):
+        assert subscribed.wait(5), "subscribe() never registered a handler"
+        body = json.dumps({"version": version, "classification": classification})
+        asyncio.run(state["cb"](types.SimpleNamespace(data=body.encode())))
+
+    return deliver
+
+
+def make_subscriber(cache_ttl=30):
+    c = PromptClient("localhost:1", cache_ttl=cache_ttl, nats_url="nats://fake:4222")
+    c._stub = FakeStub()
+    return c
+
+
+def test_held_change_keeps_cached_version(clock, fake_nats):
+    """#3: a change the policy holds must not refresh the cache, or get()
+    serves the held version anyway."""
+    c = make_subscriber()
+    before = c.get("priompt://x")
+    seen = []
+    c.subscribe("priompt://x", lambda v, cls: seen.append((v, cls)),
+                reload={"minor edit", "localized tweak", "new"})
+    fake_nats("v2", "structural")
+    assert seen == [("v2", "structural")]
+    assert c.get("priompt://x") == before
+    assert c._stub.get_calls == 1
+
+
+def test_default_policy_holds_every_change(clock, fake_nats):
+    c = make_subscriber()
+    before = c.get("priompt://x")
+    c.subscribe("priompt://x", lambda *_: None)
+    fake_nats("v2", "minor edit")
+    assert c.get("priompt://x") == before
+
+
+def test_accepted_change_refreshes_cache_before_on_change(clock, fake_nats):
+    """A change the policy accepts is in the cache by the time on_change runs,
+    so get() inside the callback already returns it."""
+    c = make_subscriber()
+    before = c.get("priompt://x")
+    inside = []
+    c.subscribe("priompt://x", lambda v, cls: inside.append(c.get("priompt://x")),
+                reload={"localized tweak"})
+    fake_nats("v2", "localized tweak")
+    assert inside and inside[0] != before
+    assert c.get("priompt://x") == inside[0]
+    assert c._stub.get_calls == 2
+
+
+def test_reload_policy_can_be_a_function(clock, fake_nats):
+    c = make_subscriber()
+    before = c.get("priompt://x")
+    c.subscribe("priompt://x", lambda *_: None,
+                reload=lambda version, cls: cls != "structural")
+    fake_nats("v2", "structural")
+    assert c.get("priompt://x") == before
+    fake_nats("v3", "")
+    assert c.get("priompt://x") != before
+
+
 # --- stress: lock-free cache under concurrent readers ---------------------
 
 def test_concurrent_gets_do_not_crash_or_corrupt(clock):

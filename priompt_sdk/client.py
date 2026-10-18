@@ -149,13 +149,20 @@ class PromptClient:
             metadata=self._md,
         )
 
-    def subscribe(self, uri, on_change):
+    def subscribe(self, uri, on_change, reload=None):
         """Register as a subscriber: call on_change(version_hash, classification)
         whenever the prompt at `uri` is republished (push). `classification` is
         the semantic diff verdict (structural | localized tweak | minor edit |
         new | ""), so an agent can auto-reload a tweak but hold a structural
         change. TTL polling via cache_ttl is the pull side. Returns the daemon
         thread running the NATS subscription.
+
+        `reload` is the reload policy for the client cache: a set of verdicts,
+        e.g. {"minor edit", "localized tweak", "new"}, or a function
+        (version_hash, classification) -> bool. A change it accepts is fetched
+        into the cache before on_change runs, so get() returns it at once. Any
+        other change is held: get() keeps returning the cached version until
+        cache_ttl expires. The default (None) holds every change.
 
         Requires `pip install nats-py` and nats_url set on the client. Raises
         ConnectionError if the broker can't be reached or refuses the
@@ -193,13 +200,22 @@ class PromptClient:
                     return
 
                 async def handler(msg):
-                    self._cache.pop(uri, None)  # drop stale cache
-                    self.get(uri)  # refetch now so the next get() is warm
                     try:
                         ev = json.loads(msg.data.decode())
-                        on_change(ev.get("version", ""), ev.get("classification", ""))
+                        version = ev.get("version", "")
+                        classification = ev.get("classification", "")
                     except (ValueError, AttributeError):
-                        on_change(msg.data.decode(), "")  # pre-0.7 bare-hash body
+                        version, classification = msg.data.decode(), ""  # pre-0.7 bare-hash body
+                    if callable(reload):
+                        accept = reload(version, classification)
+                    else:
+                        accept = classification in (reload or ())
+                    # Only an accepted change refreshes the cache; a held one
+                    # keeps serving the cached version until cache_ttl expires.
+                    if accept and self._cache_ttl:
+                        self._cache.pop(uri, None)  # drop stale cache
+                        self.get(uri)  # refetch now so the next get() is warm
+                    on_change(version, classification)
 
                 await nc.subscribe(subject, cb=handler)
                 ready.set()
