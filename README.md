@@ -78,7 +78,7 @@ PromptClient(host=None, token=None, tls=False, ca_cert=None,
 client.get(uri, ref="")          # fetch a prompt (ref = branch or commit hash to pin a version)
 client.list(prefix="")           # browse a repo (URI prefix) like a folder
 client.diff(uri, new_template)   # semantic diff: stored version vs. your draft
-client.subscribe(uri, on_change) # be notified the moment the prompt changes
+client.subscribe(uri, on_change, reload=None)  # be notified when the prompt changes
 client.close()
 ```
 
@@ -131,7 +131,11 @@ def on_change(version, classification):
     else:
         alert_a_human(version)      # structural, or unclassified — hold it
 
-client.subscribe("priompt://acme/support/agent", on_change)   # needs the [nats] extra
+# reload= is the same policy for the client cache: an accepted change is fetched
+# into the cache before on_change runs; a held one is not, so get() keeps
+# returning the old version until cache_ttl expires. Default: hold everything.
+client.subscribe("priompt://acme/support/agent", on_change,
+                 reload=AUTO_RELOAD)                          # needs the [nats] extra
 ```
 
 **The verdict measures spread, not risk.** A one-line edit turning *"offer a
