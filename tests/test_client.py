@@ -68,9 +68,26 @@ def make_client(cache_ttl=0):
     ("priompt://a", "priompt.a"),
     ("team/agent", "priompt.team.agent"),          # no scheme prefix
     ("priompt://a/b/", "priompt.a.b."),           # trailing slash preserved
+    # Server's encoding (priompt pubsub.Subject): bytes outside [A-Za-z0-9_-]
+    # are percent-encoded per segment, uppercase hex.
+    ("priompt://acme/support/agent-v2_x", "priompt.acme.support.agent-v2_x"),
+    ("priompt://acme.corp/x/a.b", "priompt.acme%2Ecorp.x.a%2Eb"),
+    ("priompt://a/*/>", "priompt.a.%2A.%3E"),       # no wildcards
+    ("priompt://a/café", "priompt.a.caf%C3%A9"),  # UTF-8 bytes
 ])
 def test_subject(uri, expected):
     assert _subject(uri) == expected
+
+
+@pytest.mark.parametrize("a,b", [
+    # The server's collision cases (TestSubjectIsInjective): distinct URIs
+    # must get distinct subjects even when a segment contains a dot.
+    ("priompt://acme/a.b", "priompt://acme/a/b"),
+    ("priompt://acme/corp/x", "priompt://acme.corp/x"),
+    ("priompt://acme/a.b/c", "priompt://acme/a/b.c"),
+])
+def test_subject_is_injective(a, b):
+    assert _subject(a) != _subject(b)
 
 
 # --- caching happy path ---------------------------------------------------
