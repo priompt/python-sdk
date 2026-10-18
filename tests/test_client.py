@@ -208,3 +208,29 @@ def test_subscribe_raises_when_broker_refuses(monkeypatch):
     with pytest.raises(ConnectionError, match="Authorization Violation") as exc:
         c.subscribe("priompt://x", lambda *_: None)
     assert "WRONG" not in str(exc.value)  # the token is not echoed
+
+
+# --- token resolution: token=, then PRIOMPT_TOKEN, then the URL's token ---
+
+def _bearer(c):
+    return dict(c._md or [])["authorization"] if c._md else None
+
+
+def test_reads_priompt_token_env(monkeypatch):
+    """#5: the client must read PRIOMPT_TOKEN like the CLI does."""
+    monkeypatch.delenv("PRIOMPT_URL", raising=False)
+    monkeypatch.setenv("PRIOMPT_TOKEN", "envtok")
+    assert _bearer(PromptClient("localhost:1")) == "Bearer envtok"
+
+
+def test_token_precedence(monkeypatch):
+    monkeypatch.setenv("PRIOMPT_TOKEN", "envtok")
+    # PRIOMPT_TOKEN beats the token inside the URL...
+    assert _bearer(PromptClient(url="priompt://urltok@localhost:1")) == "Bearer envtok"
+    # ...and an explicit token= beats both.
+    c = PromptClient(url="priompt://urltok@localhost:1", token="argtok")
+    assert _bearer(c) == "Bearer argtok"
+    # Without PRIOMPT_TOKEN, the URL's token is used.
+    monkeypatch.delenv("PRIOMPT_TOKEN")
+    assert _bearer(PromptClient(url="priompt://urltok@localhost:1")) == "Bearer urltok"
+    assert _bearer(PromptClient("localhost:1")) is None
