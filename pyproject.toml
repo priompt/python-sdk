@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "priompt-sdk"
-version = "0.7.0"
+version = "0.7.1"
 description = "Python client for Priompt — versioned prompt serving over gRPC"
 readme = "README.md"
 requires-python = ">=3.9"
