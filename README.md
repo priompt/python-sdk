@@ -38,7 +38,7 @@ client = PromptClient(host="localhost:8443")            # token=... if auth is o
 prompt = client.get("priompt://acme/onboarding/welcome")
 
 print(prompt.template)                                  # Hi {name}, welcome to {org}!
-text = prompt.template.format(name="Sujal", org="Acme")
+text = prompt.template.format(name="Ada", org="Acme")
 ```
 
 What comes back from `get()`:
@@ -67,7 +67,7 @@ PromptClient(host=None, token=None, tls=False, ca_cert=None,
 | --- | --- |
 | `host` | `address:port` of the server. Optional if `url` or `PRIOMPT_URL` is set |
 | `url` | a full `priompt://<token>@host:port` string; defaults to `PRIOMPT_URL` |
-| `token` | sent as `authorization: Bearer <token>`; explicit value wins over the url's token |
+| `token` | sent as `authorization: Bearer <token>`; defaults to `PRIOMPT_TOKEN`, then the url's token |
 | `tls` / `ca_cert` | use TLS, optionally pinning a CA certificate |
 | `cache_ttl` | local cache lifetime in seconds (`0` = off) — repeat `get`s within the TTL never touch the network |
 | `nats_url` | endpoint for `subscribe()` |

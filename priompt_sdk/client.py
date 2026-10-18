@@ -42,8 +42,11 @@ class PromptClient:
         url=None,
     ):
         # One connection string covers local/self-host/cloud: pass url= or set
-        # PRIOMPT_URL (priompt://<token>@host:port). An explicit host= wins;
-        # an explicit token= overrides the URL's token.
+        # PRIOMPT_URL (priompt://<token>@host:port). An explicit host= wins.
+        # Token precedence: token=, then PRIOMPT_TOKEN, then the URL's token
+        # (the same order as the priompt CLI).
+        if token is None:
+            token = os.environ.get("PRIOMPT_TOKEN") or None
         if host is None:
             raw = url or os.environ.get("PRIOMPT_URL")
             if raw:
