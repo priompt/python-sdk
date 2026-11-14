@@ -4,12 +4,15 @@ import logging
 import os
 import threading
 import time
+from collections import OrderedDict
 from urllib.parse import urlparse
 
 import grpc
 
 from priompt_sdk.v1 import prompt_pb2, prompt_pb2_grpc
 
+
+_MISS = object()  # cache lookup miss; a cached value is never this
 
 _TOKEN_SAFE = frozenset(
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
@@ -51,6 +54,7 @@ class PromptClient:
         client_cert=None,
         client_key=None,
         cache_ttl=0,
+        cache_max_entries=1024,
         nats_url=None,
         url=None,
     ):
@@ -94,8 +98,38 @@ class PromptClient:
         # collide. The server only returns validated prompts, so anything cached is
         # valid; TTL is the staleness bound (a change shows up within cache_ttl s).
         self._cache_ttl = cache_ttl
-        self._cache = {}
+        # Bounded LRU: expired entries are dropped when looked up, and the
+        # oldest is evicted when the cache is full. Ops go through _cache_lock
+        # because a lookup is read-modify-write (delete expired + move_to_end)
+        # and subscribe()'s handler touches the cache from its own thread.
+        self._cache_max_entries = max(1, cache_max_entries)
+        self._cache = OrderedDict()
+        self._cache_lock = threading.Lock()
         self._nats_url = nats_url  # e.g. "nats://your-company.prompts.io:4222"
+
+    def _cache_lookup(self, key):
+        with self._cache_lock:
+            hit = self._cache.get(key, _MISS)
+            if hit is _MISS:
+                return _MISS
+            if hit[1] <= time.monotonic():
+                del self._cache[key]
+                return _MISS
+            self._cache.move_to_end(key)
+            return hit[0]
+
+    def _cache_store(self, key, value):
+        with self._cache_lock:
+            now = time.monotonic()
+            # Sweep expired entries on insert, not only on lookup: keys that
+            # are never asked for again would otherwise accumulate forever.
+            expired = [k for k, (_, exp) in self._cache.items() if exp <= now]
+            for k in expired:
+                del self._cache[k]
+            self._cache[key] = (value, now + self._cache_ttl)
+            self._cache.move_to_end(key)
+            while len(self._cache) > self._cache_max_entries:
+                self._cache.popitem(last=False)
 
     def get(self, uri, ref=""):
         """Fetch a prompt by priompt:// URI. Returns the GetPromptResponse.
@@ -108,14 +142,14 @@ class PromptClient:
                 prompt_pb2.GetPromptRequest(uri=uri, ref=ref), metadata=self._md
             )
         if self._cache_ttl:
-            hit = self._cache.get(uri)
-            if hit and hit[1] > time.monotonic():
-                return hit[0]
+            hit = self._cache_lookup(uri)
+            if hit is not _MISS:
+                return hit
         resp = self._stub.GetPrompt(
             prompt_pb2.GetPromptRequest(uri=uri), metadata=self._md
         )
         if self._cache_ttl:
-            self._cache[uri] = (resp, time.monotonic() + self._cache_ttl)
+            self._cache_store(uri, resp)
         return resp
 
     def list(self, prefix=""):
@@ -129,14 +163,14 @@ class PromptClient:
         """
         key = ("list", prefix)
         if self._cache_ttl:
-            hit = self._cache.get(key)
-            if hit and hit[1] > time.monotonic():
-                return hit[0]
+            hit = self._cache_lookup(key)
+            if hit is not _MISS:
+                return hit
         entries = self._stub.ListPrompts(
             prompt_pb2.ListPromptsRequest(prefix=prefix), metadata=self._md
         ).entries
         if self._cache_ttl:
-            self._cache[key] = (entries, time.monotonic() + self._cache_ttl)
+            self._cache_store(key, entries)
         return entries
 
     def diff(self, uri, new_template):
@@ -213,7 +247,8 @@ class PromptClient:
                     # Only an accepted change refreshes the cache; a held one
                     # keeps serving the cached version until cache_ttl expires.
                     if accept and self._cache_ttl:
-                        self._cache.pop(uri, None)  # drop stale cache
+                        with self._cache_lock:
+                            self._cache.pop(uri, None)  # drop stale cache
                         self.get(uri)  # refetch now so the next get() is warm
                     on_change(version, classification)
 

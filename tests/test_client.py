@@ -158,6 +158,33 @@ def test_list_caches_within_ttl(clock):
     assert c._stub.list_calls == 1
 
 
+def test_expired_entries_are_removed_for_get_and_list(clock):
+    """Expired keys that are never queried again must still leave the cache:
+    lazy deletion alone leaves distinct-URI users growing without bound."""
+    c = make_client(cache_ttl=10)
+    for i in range(50):
+        c.get(f"priompt://p{i}")
+        c.list(f"team{i}/")
+    clock.advance(11)
+    c.get("priompt://fresh")
+    assert len(c._cache) == 1  # both get() and list() keys were swept
+    assert "priompt://fresh" in c._cache
+
+
+def test_cache_is_bounded_and_evicts_least_recently_used(clock):
+    c = PromptClient("localhost:1", cache_ttl=10, cache_max_entries=2)
+    c._stub = FakeStub()
+    c.get("priompt://a")
+    c.get("priompt://b")
+    c.get("priompt://a")  # cache hit: a becomes most recently used
+    c.get("priompt://c")  # evicts b, the least recently used
+    assert len(c._cache) == 2
+    assert "priompt://a" in c._cache and "priompt://b" not in c._cache
+    for i in range(10):
+        c.get(f"priompt://k{i}")
+    assert len(c._cache) == 2  # never grows past the bound
+
+
 def test_diff_is_never_cached():
     c = make_client(cache_ttl=10)
     c.diff("priompt://x", "new template")
@@ -260,10 +287,8 @@ def test_reload_policy_can_be_a_function(clock, fake_nats):
 # --- stress: lock-free cache under concurrent readers ---------------------
 
 def test_concurrent_gets_do_not_crash_or_corrupt(clock):
-    """The cache is a plain dict with no lock (ponytail: fine for CPython, RPC
-    dedup under a race is best-effort). Hammer it from many threads on many
-    keys and assert every reader got a correct, self-consistent value and the
-    dict didn't corrupt."""
+    """Hammer the shared cache from many threads on many keys and assert every
+    reader got a correct, self-consistent value and the cache stayed intact."""
     c = make_client(cache_ttl=100)
     keys = [f"priompt://k{i}" for i in range(20)]
     errors = []

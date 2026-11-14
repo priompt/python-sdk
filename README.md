@@ -60,7 +60,7 @@ between local, self-hosted, and cloud is a one-variable change.
 ```python
 PromptClient(host=None, token=None, tls=False, ca_cert=None,
              client_cert=None, client_key=None,
-             cache_ttl=0, nats_url=None, url=None)
+             cache_ttl=0, cache_max_entries=1024, nats_url=None, url=None)
 ```
 
 | Parameter | What it does |
@@ -70,6 +70,7 @@ PromptClient(host=None, token=None, tls=False, ca_cert=None,
 | `token` | sent as `authorization: Bearer <token>`; defaults to `PRIOMPT_TOKEN`, then the url's token |
 | `tls` / `ca_cert` | use TLS, optionally pinning a CA certificate |
 | `cache_ttl` | local cache lifetime in seconds (`0` = off) — repeat `get`s within the TTL never touch the network |
+| `cache_max_entries` | upper bound on cached entries (default 1024); the least recently used entry is evicted when full |
 | `nats_url` | endpoint for `subscribe()` |
 
 ## Everything the client can do
