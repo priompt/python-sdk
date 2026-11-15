@@ -7,17 +7,24 @@ name = "priompt-sdk"
 version = "0.7.1"
 description = "Python client for Priompt — versioned prompt serving over gRPC"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"  # protobuf 7.x needs 3.10
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Priompt", email = "oss@priompt.com" }]
 keywords = ["prompts", "grpc", "llm", "prompt-management"]
 classifiers = [
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Operating System :: OS Independent",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["grpcio>=1.60", "protobuf>=7.35"]
+# grpcio 1.63 is the first release whose channels accept the generated stubs'
+# `_registered_method=True`; older ones raise TypeError in PromptClient().
+dependencies = ["grpcio>=1.63", "protobuf>=7.35.1"]  # gencode is 7.35.1; older runtimes refuse it
 
 [project.optional-dependencies]
 nats = ["nats-py>=2.0"]   # only needed for PromptClient.subscribe()

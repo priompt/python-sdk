@@ -17,7 +17,7 @@ inputs:
   - directory: ../proto/proto
 plugins:
   # Pinned: v35.x emits gencode for protobuf 7.35, matching the
-  # protobuf>=7.35 floor in pyproject.toml. A newer plugin raises that floor.
+  # protobuf>=7.35.1 floor in pyproject.toml (gencode 7.35.1). A newer plugin raises that floor.
   - remote: buf.build/protocolbuffers/python:v35.1
     out: .
   - remote: buf.build/grpc/python
