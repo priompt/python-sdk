@@ -337,3 +337,23 @@ def test_token_precedence(monkeypatch):
     monkeypatch.delenv("PRIOMPT_TOKEN")
     assert _bearer(PromptClient(url="priompt://urltok@localhost:1")) == "Bearer urltok"
     assert _bearer(PromptClient("localhost:1")) is None
+
+@pytest.mark.parametrize("url,expected", [
+    ("priompt://sample@[::1]:8443", ("[::1]:8443", "sample")),
+    ("priompt://[::1]", ("[::1]", None)),
+    ("priompt://ab%2Bc%3D@Prompts.Example.com:8443", ("Prompts.Example.com:8443", "ab+c=")),
+    ("priompt://a%40b%2Fc@host", ("host", "a@b/c")),
+    ("priompt://abc+def@host", ("host", "abc+def")),
+    ("host:8443", ("host:8443", None)),
+    ("host", ("host", None)),
+    ("priompt://host:0", ("host:0", None)),
+])
+def test_parse_connection_url_preserves_authority_and_decodes_token(url, expected):
+    from priompt_sdk.client import _parse_url
+    assert _parse_url(url) == expected
+
+@pytest.mark.parametrize("url", ["priompt://host:bad", "priompt://host:-1", "priompt://host:65536"])
+def test_parse_connection_url_still_rejects_invalid_ports(url):
+    from priompt_sdk.client import _parse_url
+    with pytest.raises(ValueError):
+        _parse_url(url)

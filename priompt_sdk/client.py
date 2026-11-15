@@ -4,7 +4,7 @@ import logging
 import os
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import grpc
 
@@ -35,10 +35,10 @@ def _parse_url(raw):
     if "://" not in raw:
         return raw, None
     u = urlparse(raw)
-    host = u.hostname or ""
-    if u.port:
-        host = f"{host}:{u.port}"
-    return host, u.username
+    _ = u.port  # Preserve urlparse validation without normalizing the authority.
+    host = u.netloc.rpartition("@")[2]
+    token = unquote(u.username) if u.username else None
+    return host, token
 
 
 class PromptClient:
