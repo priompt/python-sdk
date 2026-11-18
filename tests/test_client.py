@@ -337,3 +337,31 @@ def test_token_precedence(monkeypatch):
     monkeypatch.delenv("PRIOMPT_TOKEN")
     assert _bearer(PromptClient(url="priompt://urltok@localhost:1")) == "Bearer urltok"
     assert _bearer(PromptClient("localhost:1")) is None
+
+
+def test_subscribe_nats_default_port(monkeypatch):
+    """NATS connection errors show port 4222 when URL has no port, and explicit port otherwise."""
+    import sys
+    import types
+
+    async def connect_no_port(url, error_cb=None, **kw):
+        err = Exception("TimeoutError")
+        if error_cb:
+            await error_cb(err)
+        raise err
+
+    monkeypatch.setitem(sys.modules, "nats", types.SimpleNamespace(connect=connect_no_port))
+    
+    # Case 1: No port in URL -> should default to 4222
+    c1 = PromptClient("localhost:1", nats_url="nats://secret-token@127.0.0.1")
+    with pytest.raises(ConnectionError) as exc1:
+        c1.subscribe("priompt://x", lambda *_: None)
+    assert "127.0.0.1:4222" in str(exc1.value)
+    assert "secret-token" not in str(exc1.value)
+
+    # Case 2: Explicit port in URL -> should preserve explicit port
+    c2 = PromptClient("localhost:1", nats_url="nats://secret-token@127.0.0.1:5222")
+    with pytest.raises(ConnectionError) as exc2:
+        c2.subscribe("priompt://x", lambda *_: None)
+    assert "127.0.0.1:5222" in str(exc2.value)
+    assert "secret-token" not in str(exc2.value)

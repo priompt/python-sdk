@@ -231,7 +231,7 @@ class PromptClient:
             e = failed[0]
             u = urlparse(self._nats_url)  # don't echo the token
             raise ConnectionError(
-                f"subscribe: cannot connect to NATS at {u.hostname}:{u.port}: "
+                f"subscribe: cannot connect to NATS at {u.hostname}:{u.port or 4222}: "
                 f"{str(e) or type(e).__name__}"
             ) from e
         return t
