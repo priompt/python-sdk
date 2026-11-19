@@ -12,7 +12,7 @@ import threading
 import pytest
 
 from priompt_sdk import PromptClient
-from priompt_sdk.client import _subject
+from priompt_sdk.client import _derive_slots, _subject
 
 
 class FakeStub:
@@ -23,6 +23,8 @@ class FakeStub:
         self.get_calls = 0
         self.list_calls = 0
         self.diff_calls = 0
+        self.publish_calls = 0
+        self.last_publish = None
 
     def GetPrompt(self, req, metadata=None):
         self.get_calls += 1
@@ -36,6 +38,11 @@ class FakeStub:
     def DiffPrompt(self, req, metadata=None):
         self.diff_calls += 1
         return f"diff:{req.uri}:{self.diff_calls}"
+
+    def PublishPrompt(self, req, metadata=None):
+        self.publish_calls += 1
+        self.last_publish = (req, metadata)
+        return type("Resp", (), {"version_hash": f"pub:{req.uri}:{self.publish_calls}"})
 
 
 @pytest.fixture
@@ -365,3 +372,98 @@ def test_subscribe_nats_default_port(monkeypatch):
         c2.subscribe("priompt://x", lambda *_: None)
     assert "127.0.0.1:5222" in str(exc2.value)
     assert "secret-token" not in str(exc2.value)
+
+
+# --- publish: slot derivation and cache invalidation ----------------------
+
+@pytest.mark.parametrize("template,expected", [
+    ("Hi {name}, welcome to {org}!", ["name", "org"]),
+    ("{b} then {a} then {b} and {c} and {a}", ["b", "a", "c"]),
+    ("No placeholders here.", []),
+    ("Literal {{name}} and {{org}} braces.", []),
+    ("{{{name}}} {org} {{\"k\": \"{val}\"}}", ["name", "org", "val"]),
+    ("{user_id_1} and {Item2}", ["user_id_1", "Item2"]),
+])
+def test_derive_slots(template, expected):
+    assert _derive_slots(template) == expected
+
+
+def test_publish_derives_slots_and_forwards_fields():
+    c = PromptClient("localhost:1", token="tok123")
+    c._stub = FakeStub()
+    resp = c.publish(
+        "priompt://acme/onboarding/welcome",
+        "Hi {name}, welcome to {org}! Bye {name}.",
+        message="friendlier greeting",
+        branch="draft",
+    )
+    assert resp.version_hash == "pub:priompt://acme/onboarding/welcome:1"
+    req, md = c._stub.last_publish
+    assert req.uri == "priompt://acme/onboarding/welcome"
+    assert req.template == "Hi {name}, welcome to {org}! Bye {name}."
+    assert list(req.slots) == ["name", "org"]
+    assert req.message == "friendlier greeting"
+    assert req.branch == "draft"
+    assert md == [("authorization", "Bearer tok123")]
+
+
+def test_publish_respects_explicit_slots():
+    c = make_client()
+    c.publish("priompt://x", "Hi {name}!", slots=["custom"])
+    req, _ = c._stub.last_publish
+    assert list(req.slots) == ["custom"]
+
+    # An explicit empty list must not fall back to derivation.
+    c.publish("priompt://x", "Hi {name}!", slots=[])
+    req, _ = c._stub.last_publish
+    assert list(req.slots) == []
+
+
+def test_publish_invalidates_get_and_matching_list_cache(clock):
+    c = make_client(cache_ttl=10)
+    uri = "priompt://acme/onboarding/welcome"
+    other = "priompt://acme/onboarding/goodbye"
+
+    before_get = c.get(uri)
+    before_other = c.get(other)
+    before_all = c.list("")
+    before_acme = c.list("priompt://acme/")
+    before_unrelated = c.list("priompt://other/")
+
+    c.publish(uri, "Hi {name}!")
+
+    # Published URI and matching list prefixes are evicted and refetched.
+    assert c.get(uri) != before_get
+    assert c.list("") != before_all
+    assert c.list("priompt://acme/") != before_acme
+    # Unrelated get() and list() entries remain warm in the cache.
+    assert c.get(other) == before_other
+    assert c.list("priompt://other/") == before_unrelated
+    assert c._stub.get_calls == 3
+    assert c._stub.list_calls == 5
+
+
+def test_publish_to_main_invalidates_cache(clock):
+    c = make_client(cache_ttl=10)
+    uri = "priompt://acme/onboarding/welcome"
+    before_get = c.get(uri)
+    before_list = c.list("priompt://acme/")
+
+    c.publish(uri, "Hi {name}!", branch="main")
+
+    assert c.get(uri) != before_get
+    assert c.list("priompt://acme/") != before_list
+
+
+def test_publish_to_non_main_branch_keeps_cache(clock):
+    c = make_client(cache_ttl=10)
+    uri = "priompt://acme/onboarding/welcome"
+    before_get = c.get(uri)
+    before_list = c.list("priompt://acme/")
+
+    c.publish(uri, "Hi {name}!", branch="experiment")
+
+    assert c.get(uri) == before_get
+    assert c.list("priompt://acme/") == before_list
+    assert c._stub.get_calls == 1
+    assert c._stub.list_calls == 1

@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import threading
 import time
 from urllib.parse import urlparse
@@ -14,6 +15,16 @@ from priompt_sdk.v1 import prompt_pb2, prompt_pb2_grpc
 _TOKEN_SAFE = frozenset(
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
 )
+_SLOT_RE = re.compile(r"\{\{|\}\}|\{([A-Za-z0-9_]+)\}")
+
+
+def _derive_slots(template):
+    """Extract {slot} names in first-seen order, skipping escaped {{ / }}."""
+    return list(
+        dict.fromkeys(
+            m.group(1) for m in _SLOT_RE.finditer(template) if m.group(1) is not None
+        )
+    )
 
 
 def _subject(uri):
@@ -148,6 +159,35 @@ class PromptClient:
             prompt_pb2.DiffPromptRequest(uri=uri, new_template=new_template),
             metadata=self._md,
         )
+
+    def publish(self, uri, template, slots=None, message="", branch=""):
+        """Validate and store a new prompt version on the server. Returns the
+        PublishPromptResponse (with `version_hash`).
+
+        When `slots` is None, placeholder names are derived from `template` in
+        first-seen order (skipping escaped `{{` / `}}`). Pass `branch` to write
+        to a non-default branch instead of `"main"`.
+        """
+        if slots is None:
+            slots = _derive_slots(template)
+        resp = self._stub.PublishPrompt(
+            prompt_pb2.PublishPromptRequest(
+                uri=uri,
+                template=template,
+                slots=slots,
+                message=message,
+                branch=branch,
+            ),
+            metadata=self._md,
+        )
+        # Unpinned get() and list() only serve the "main" HEAD, so non-main
+        # branch publishes leave the local cache intact.
+        if self._cache_ttl and branch in ("", "main"):
+            self._cache.pop(uri, None)
+            for key in list(self._cache):
+                if isinstance(key, tuple) and key[0] == "list" and uri.startswith(key[1]):
+                    self._cache.pop(key, None)
+        return resp
 
     def subscribe(self, uri, on_change, reload=None):
         """Register as a subscriber: call on_change(version_hash, classification)
