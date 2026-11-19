@@ -9,9 +9,9 @@ notified the moment a prompt changes.
   🐍 Your Python app
         │
         ▼
-  PromptClient (this library) ──gRPC: get / list / diff──▶ 🗄️  Priompt server
-        │   ▲                                                     │
-        │   └──────────── "prompt changed" push (NATS) ───────────┘
+  PromptClient (this library) ──gRPC: get/list/diff/publish──▶ 🗄️  Priompt server
+        │   ▲                                                         │
+        │   └────────────── "prompt changed" push (NATS) ─────────────┘
         ▼
   Optional local cache (cache_ttl seconds)
 ```
@@ -78,6 +78,7 @@ PromptClient(host=None, token=None, tls=False, ca_cert=None,
 client.get(uri, ref="")          # fetch a prompt (ref = branch or commit hash to pin a version)
 client.list(prefix="")           # browse a repo (URI prefix) like a folder
 client.diff(uri, new_template)   # semantic diff: stored version vs. your draft
+client.publish(uri, template, slots=None, message="", branch="")  # publish a new prompt version
 client.subscribe(uri, on_change, reload=None)  # be notified when the prompt changes
 client.close()
 ```
@@ -95,6 +96,17 @@ Pin a version (ignore future changes until *you* decide to upgrade):
 
 ```python
 prompt = client.get("priompt://acme/support/agent", ref="1e8284f35650")
+```
+
+Publish a new version (slots are derived automatically unless passed explicitly):
+
+```python
+resp = client.publish(
+    "priompt://acme/onboarding/welcome",
+    "Hi {name}, welcome to {org}!",
+    message="friendlier greeting",
+)
+print(resp.version_hash)
 ```
 
 ## Live updates
